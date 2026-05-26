@@ -3,4 +3,3 @@ uvicorn
 openai
 python-dotenv
 numpy
-rank-bm25
