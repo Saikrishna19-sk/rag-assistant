@@ -1,26 +1,15 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import json
-import os
+import json, os
 from dotenv import load_dotenv
-
 load_dotenv()
-
 from app.utils.chunker import chunk_text
 from app.services.embedder import get_embedding
 from app.services.vectorstore import VectorStore
-from app.services.hybrid_retriever import HybridRetriever
-from app.services.reranker import Reranker
-from app.services.rag import RAG
 from app.services.llm import generate_answer
 
 app = FastAPI()
-
 store = VectorStore()
-hybrid = HybridRetriever(store)
-reranker = Reranker()
-rag = RAG(store, hybrid, reranker)
-
 chat_history = {}
 
 class ChatRequest(BaseModel):
@@ -36,13 +25,12 @@ def startup_event():
         for i, chunk in enumerate(chunks):
             emb = get_embedding(chunk)
             store.add(emb, {"title": doc["title"], "chunk_id": i, "text": chunk})
-    hybrid.build_bm25()
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     history = chat_history.get(req.sessionId, [])
     query_emb = get_embedding(req.message)
-    results = rag.retrieve(req.message, query_emb)
+    results = store.search(query_emb, top_k=3)
     if not results:
         return {"reply": "No relevant context found.", "tokensUsed": 0, "retrievedChunks": 0}
     context = "\n".join([r[1]["text"] for r in results])
