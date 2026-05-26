@@ -27,7 +27,8 @@ class ChatRequest(BaseModel):
     sessionId: str
     message: str
 
-def build_index():
+@app.on_event("startup")
+def startup_event():
     with open("data/docs.json", "r", encoding="utf-8") as f:
         docs = json.load(f)
     for doc in docs:
@@ -36,10 +37,6 @@ def build_index():
             emb = get_embedding(chunk)
             store.add(emb, {"title": doc["title"], "chunk_id": i, "text": chunk})
     hybrid.build_bm25()
-
-@app.on_event("startup")
-def startup_event():
-    build_index()
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
