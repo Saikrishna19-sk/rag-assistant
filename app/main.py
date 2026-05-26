@@ -1,10 +1,16 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import json
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+from app.utils.chunker import chunk_text
+from app.services.embedder import get_embedding
 from app.services.vectorstore import VectorStore
 from app.services.rag import RAG
 from app.services.llm import generate_answer
-from app.index.builder import build_index_async
 
 app = FastAPI()
 
@@ -13,56 +19,35 @@ rag = RAG(store)
 
 chat_history = {}
 
-# -------------------------
-# STARTUP EVENT (ASYNC INDEX)
-# -------------------------
-@app.on_event("startup")
-async def startup_event():
-    global store, rag
-
-    store = await build_index_async()
-    rag = RAG(store)
-
-# -------------------------
-# REQUEST MODEL
-# -------------------------
 class ChatRequest(BaseModel):
     sessionId: str
     message: str
 
-# -------------------------
-# CHAT ENDPOINT
-# -------------------------
+def build_index():
+    with open("data/docs.json", "r", encoding="utf-8") as f:
+        docs = json.load(f)
+    for doc in docs:
+        chunks = chunk_text(doc["content"], 50)
+        for i, chunk in enumerate(chunks):
+            emb = get_embedding(chunk)
+            store.add(emb, {"title": doc["title"], "chunk_id": i, "text": chunk})
+
+@app.on_event("startup")
+def startup_event():
+    build_index()
+
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-
     history = chat_history.get(req.sessionId, [])
-
     results = rag.retrieve(req.message)
-
     if not results:
-        return {
-            "reply": "No relevant context found.",
-            "tokensUsed": 0,
-            "retrievedChunks": 0
-        }
-
+        return {"reply": "No relevant context found.", "tokensUsed": 0, "retrievedChunks": 0}
     context = "\n".join([r[1]["text"] for r in results])
-
     answer = generate_answer(context, history, req.message)
-
     history.append((req.message, answer))
     chat_history[req.sessionId] = history[-5:]
+    return {"reply": answer, "tokensUsed": 0, "retrievedChunks": len(results)}
 
-    return {
-        "reply": answer,
-        "tokensUsed": 0,
-        "retrievedChunks": len(results)
-    }
-
-# -------------------------
-# HEALTH CHECK
-# -------------------------
 @app.get("/health")
 def health():
     return {"status": "healthy"}
