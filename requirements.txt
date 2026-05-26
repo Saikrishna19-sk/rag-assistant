@@ -3,5 +3,4 @@ uvicorn
 openai
 python-dotenv
 numpy
-faiss-cpu
 rank-bm25
